@@ -5,23 +5,23 @@
 # ── ECR ──────────────────────────────────────────────────────
 output "ecr_backend_url" {
   description = "ECR repository URL for the backend image"
-  value       = data.aws_ecr_repository.backend.repository_url
+  value       = aws_ecr_repository.backend.repository_url
 }
 
 output "ecr_frontend_url" {
   description = "ECR repository URL for the frontend image"
-  value       = data.aws_ecr_repository.frontend.repository_url
+  value       = aws_ecr_repository.frontend.repository_url
 }
 
 # ── ECS ──────────────────────────────────────────────────────
 output "ecs_cluster_name" {
   description = "ECS Fargate cluster name"
-  value       = data.aws_ecs_cluster.main.cluster_name
+  value       = aws_ecs_cluster.main.name
 }
 
 output "ecs_cluster_arn" {
   description = "ECS Fargate cluster ARN"
-  value       = data.aws_ecs_cluster.main.arn
+  value       = aws_ecs_cluster.main.arn
 }
 
 output "backend_service_name" {
@@ -37,10 +37,10 @@ output "frontend_service_name" {
 # ── S3 ───────────────────────────────────────────────────────
 output "s3_bucket_name" {
   description = "S3 bucket name"
-  value       = data.aws_s3_bucket.shopsmart.bucket
+  value       = aws_s3_bucket.shopsmart.bucket
 }
 
 output "s3_bucket_arn" {
   description = "S3 bucket ARN"
-  value       = data.aws_s3_bucket.shopsmart.arn
+  value       = aws_s3_bucket.shopsmart.arn
 }

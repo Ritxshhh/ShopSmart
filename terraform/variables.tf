@@ -109,5 +109,5 @@ variable "frontend_env_vars" {
 variable "s3_bucket_prefix" {
   type        = string
   default     = "bucketaws12341234"
-  description = "Name of the pre-existing S3 bucket created manually in AWS Console"
+  description = "Name of the S3 bucket created by Terraform"
 }
