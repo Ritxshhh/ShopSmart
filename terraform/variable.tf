@@ -63,7 +63,7 @@ variable "backend_port" {
 
 variable "frontend_port" {
   type        = number
-  default     = 80
+  default     = 8080
   description = "Port number exposed by the frontend container"
 }
 
