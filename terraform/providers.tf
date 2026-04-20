@@ -17,8 +17,8 @@ terraform {
     }
   }
 
-  # S3 backend for remote state (values supplied via -backend-config at init)
-  # Falls back to local state in AWS Academy environments when TF_STATE_BUCKET is unset
+  # Backend block is overridden at init time via backend.override.tf generated in CI.
+  # S3 remote state when TF_STATE_BUCKET is set, local state otherwise.
   backend "s3" {}
 }
 

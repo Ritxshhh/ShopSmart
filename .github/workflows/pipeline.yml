@@ -194,13 +194,19 @@ jobs:
         run: |
           BUCKET=$(echo "${{ secrets.TF_STATE_BUCKET }}" | tr -d '[:space:]')
           if [ "$USE_S3" = "true" ]; then
-            terraform init -upgrade -input=false \
+            terraform init -upgrade -input=false -reconfigure \
               -backend-config="bucket=${BUCKET}" \
               -backend-config="key=shopsmart/terraform.tfstate" \
               -backend-config="region=${{ secrets.AWS_REGION }}" \
               -backend-config="encrypt=true"
           else
-            terraform init -upgrade -input=false -backend=false
+            # Override the s3 backend with a local one for environments without a state bucket
+            cat > override.tf <<'EOF'
+terraform {
+  backend "local" {}
+}
+EOF
+            terraform init -upgrade -input=false -reconfigure
           fi
           echo "✅ Terraform initialized"
 
