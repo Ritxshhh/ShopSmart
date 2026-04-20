@@ -221,7 +221,7 @@ EOF
       - name: "Terraform — Import existing resources"
         working-directory: terraform
         env:
-          TF_VAR_image_tag: ${{ github.sha }}
+          TF_VAR_image_tag: latest
           TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
         run: |
           import_if_exists() {
@@ -251,15 +251,17 @@ EOF
       - name: "Terraform — Plan"
         working-directory: terraform
         env:
-          TF_VAR_image_tag: ${{ github.sha }}
+          TF_VAR_image_tag: latest
           TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
         run: |
           terraform plan -input=false -out=tfplan
           echo "✅ Plan generated"
 
-      # Apply the saved plan — no manual approval needed in CI
       - name: "Terraform — Apply"
         working-directory: terraform
+        env:
+          TF_VAR_image_tag: latest
+          TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
         run: |
           terraform apply -input=false -auto-approve tfplan
           echo "✅ Infrastructure provisioned successfully"
@@ -294,29 +296,27 @@ EOF
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Build backend: multi-stage (builder → runtime), non-root user, HEALTHCHECK
       - name: "Build & push — Backend"
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          IMAGE_URI=$REGISTRY/${{ env.ECR_BACKEND_REPO }}:$IMAGE_TAG
-          echo "Building backend image: $IMAGE_URI"
-          docker build -f docker/dockerFIle.backend -t "$IMAGE_URI" .
-          docker push "$IMAGE_URI"
-          echo "✅ Backend pushed: $IMAGE_URI"
+          IMAGE_URI=$REGISTRY/${{ env.ECR_BACKEND_REPO }}
+          docker build -f docker/dockerFIle.backend -t "$IMAGE_URI:$IMAGE_TAG" -t "$IMAGE_URI:latest" .
+          docker push "$IMAGE_URI:$IMAGE_TAG"
+          docker push "$IMAGE_URI:latest"
+          echo "✅ Backend pushed: $IMAGE_URI:$IMAGE_TAG"
 
-      # Build frontend: multi-stage (builder with Vite → nginx), non-root user, HEALTHCHECK
       - name: "Build & push — Frontend"
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          IMAGE_URI=$REGISTRY/${{ env.ECR_FRONTEND_REPO }}:$IMAGE_TAG
-          echo "Building frontend image: $IMAGE_URI"
-          docker build -f docker/dockerFile.frontend -t "$IMAGE_URI" .
-          docker push "$IMAGE_URI"
-          echo "✅ Frontend pushed: $IMAGE_URI"
+          IMAGE_URI=$REGISTRY/${{ env.ECR_FRONTEND_REPO }}
+          docker build -f docker/dockerFile.frontend -t "$IMAGE_URI:$IMAGE_TAG" -t "$IMAGE_URI:latest" .
+          docker push "$IMAGE_URI:$IMAGE_TAG"
+          docker push "$IMAGE_URI:latest"
+          echo "✅ Frontend pushed: $IMAGE_URI:$IMAGE_TAG"
 
   # ────────────────────────────────────────────────────────────
   # Phase 3b — Deploy to ECS Fargate
