@@ -293,7 +293,8 @@ EOF
   deploy-ec2:
     name: "Phase 4 — Deploy EC2"
     runs-on: ubuntu-latest
-    needs: [build-push]
+    needs: [test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.0
@@ -309,3 +310,4 @@ EOF
             npx prisma generate
             npx prisma migrate deploy
             pm2 describe shopsmart > /dev/null 2>&1 && pm2 restart shopsmart || pm2 start src/index.js --name shopsmart
+            pm2 save

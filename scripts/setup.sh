@@ -26,10 +26,10 @@ npm run build || true
 
 echo "==> Starting server with pm2..."
 cd "$REPO_DIR/server"
-if pm2 describe server > /dev/null 2>&1; then
-  pm2 restart server
+if pm2 describe shopsmart > /dev/null 2>&1; then
+  pm2 restart shopsmart
 else
-  pm2 start src/index.js --name server
+  pm2 start src/index.js --name shopsmart
 fi
 
 pm2 save || true
