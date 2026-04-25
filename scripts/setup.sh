@@ -7,7 +7,7 @@ echo "==> Cloning or updating repo..."
 if [ -d "$REPO_DIR/.git" ]; then
   git -C "$REPO_DIR" pull origin main || true
 else
-  git clone https://github.com/YOUR_USERNAME/shopsmart.git "$REPO_DIR"
+  git clone https://github.com/Ritxshhh/ShopSmart.git "$REPO_DIR"
 fi
 
 echo "==> Installing server dependencies..."

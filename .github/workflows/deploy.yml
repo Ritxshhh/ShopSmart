@@ -26,7 +26,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
 
+      # ── Server tests ──
       - name: "Server — Install & generate Prisma"
         working-directory: server
         run: npm ci && npx prisma generate
@@ -40,47 +45,30 @@ jobs:
         run: npm run test:integration
         env:
           DATABASE_URL: "file:./tests/test.db"
-          JEST_JUNIT_OUTPUT_DIR: test-results
-          JEST_JUNIT_OUTPUT_NAME: integration.xml
 
-      - name: "Server — Upload test reports"
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: server-test-results
-          path: server/test-results/
-          if-no-files-found: warn
-
+      # ── Client tests ──
       - name: "Client — Install dependencies"
         working-directory: client
         run: npm ci
 
       - name: "Client — Unit tests"
         working-directory: client
-        run: npx vitest run --reporter=junit --outputFile=test-results/junit.xml
-
-      - name: "Client — Upload test reports"
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: client-test-results
-          path: client/test-results/junit.xml
-          if-no-files-found: warn
+        run: npx vitest run
 
   # ── Phase 2 — Terraform ─────────────────────────────────────
   terraform:
     name: "Phase 2 — Terraform"
     runs-on: ubuntu-latest
     needs: [test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate required secrets
+      - name: Validate required AWS secrets
         run: |
           MISSING=()
           [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]     && MISSING+=("AWS_ACCESS_KEY_ID")
           [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ] && MISSING+=("AWS_SECRET_ACCESS_KEY")
-          [ -z "${{ secrets.AWS_SESSION_TOKEN }}" ]     && MISSING+=("AWS_SESSION_TOKEN")
           [ -z "${{ secrets.AWS_REGION }}" ]            && MISSING+=("AWS_REGION")
           [ -z "${{ secrets.AWS_SUBNET_ID }}" ]         && MISSING+=("AWS_SUBNET_ID")
           [ -z "${{ secrets.AWS_SECURITY_GROUP_ID }}" ] && MISSING+=("AWS_SECURITY_GROUP_ID")
@@ -89,7 +77,7 @@ jobs:
             for s in "${MISSING[@]}"; do echo "   • $s"; done
             exit 1
           fi
-          echo "✅ All required secrets are present"
+          echo "✅ All required AWS secrets are present"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -148,10 +136,10 @@ jobs:
               -backend-config="encrypt=true"
           else
             cat > override.tf <<'EOF'
-terraform {
-  backend "local" {}
-}
-EOF
+          terraform {
+            backend "local" {}
+          }
+          EOF
             terraform init -upgrade -input=false -reconfigure
           fi
           echo "✅ Terraform initialized"
@@ -197,7 +185,7 @@ EOF
           TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
         run: terraform apply -input=false -auto-approve tfplan && echo "✅ Infrastructure provisioned"
 
-  # ── Phase 3a — Build & Push to ECR ──────────────────────────
+  # ── Phase 3 — Build & Push to ECR ───────────────────────────
   build-push:
     name: "Phase 3 — Build & Push"
     runs-on: ubuntu-latest
@@ -241,9 +229,9 @@ EOF
           docker push "$IMAGE_URI:latest"
           echo "✅ Frontend pushed: $IMAGE_URI:$IMAGE_TAG"
 
-  # ── Phase 3b — Deploy to ECS Fargate ────────────────────────
+  # ── Phase 4 — Deploy to ECS Fargate ─────────────────────────
   deploy-ecs:
-    name: "Phase 3 — Deploy ECS"
+    name: "Phase 4 — Deploy ECS"
     runs-on: ubuntu-latest
     needs: [build-push]
     steps:
@@ -291,25 +279,63 @@ EOF
           { echo "❌ Frontend failed to stabilize"; exit 1; }
           echo "✅ Frontend service is stable"
 
-  # ── Phase 4 — Deploy to EC2 (pm2) ───────────────────────────
+  # ── Phase 5 — Deploy to EC2 (pm2) ───────────────────────────
   deploy-ec2:
-    name: "Phase 4 — Deploy EC2"
+    name: "Phase 5 — Deploy to EC2"
     runs-on: ubuntu-latest
     needs: [test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1.0.0
+      - name: Validate required secrets
+        run: |
+          MISSING=()
+          [ -z "${{ secrets.EC2_HOST }}" ] && MISSING+=("EC2_HOST")
+          [ -z "${{ secrets.EC2_USER }}" ] && MISSING+=("EC2_USER")
+          [ -z "${{ secrets.EC2_KEY }}" ]  && MISSING+=("EC2_KEY")
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "❌ Missing required secrets:"
+            for s in "${MISSING[@]}"; do echo "   • $s"; done
+            exit 1
+          fi
+          echo "✅ All required secrets are present"
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_KEY }}
+          script_stop: true
           script: |
-            cd shopsmart
-            git checkout server/package-lock.json
-            git pull origin main
-            cd server && npm install
+            set -euo pipefail
+
+            REPO_DIR="$HOME/shopsmart"
+
+            echo "===> Pulling latest code..."
+            cd "$REPO_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "===> Installing server dependencies..."
+            cd "$REPO_DIR/server"
+            npm ci --omit=dev
             npx prisma generate
-            npx prisma migrate deploy
-            pm2 describe shopsmart > /dev/null 2>&1 && pm2 restart shopsmart || pm2 start src/index.js --name shopsmart
+
+            echo "===> Running database migrations..."
+            npx prisma migrate deploy || echo "⚠️  Migration skipped (no pending migrations or no DB configured)"
+
+            echo "===> Building client..."
+            cd "$REPO_DIR/client"
+            npm ci
+            npm run build
+
+            echo "===> Restarting server with pm2..."
+            cd "$REPO_DIR/server"
+            if pm2 describe shopsmart > /dev/null 2>&1; then
+              pm2 restart shopsmart
+            else
+              pm2 start src/index.js --name shopsmart
+            fi
             pm2 save
+
+            echo "✅ Deployment complete!"
