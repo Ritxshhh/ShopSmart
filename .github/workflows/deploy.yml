@@ -159,16 +159,42 @@ jobs:
             terraform state show "$resource" >/dev/null 2>&1 && return
             terraform import -input=false "$resource" "$id" 2>/dev/null || true
           }
+
+          REGION="${{ secrets.AWS_REGION }}"
+          CLUSTER="shopsmart-cluster"
+
+          # ECR repositories
           aws ecr describe-repositories --repository-names shopsmart-backend \
-            --region "${{ secrets.AWS_REGION }}" >/dev/null 2>&1 && \
+            --region "$REGION" >/dev/null 2>&1 && \
             import_if_exists aws_ecr_repository.backend shopsmart-backend
           aws ecr describe-repositories --repository-names shopsmart-frontend \
-            --region "${{ secrets.AWS_REGION }}" >/dev/null 2>&1 && \
+            --region "$REGION" >/dev/null 2>&1 && \
             import_if_exists aws_ecr_repository.frontend shopsmart-frontend
-          aws ecs describe-clusters --clusters shopsmart-cluster \
-            --region "${{ secrets.AWS_REGION }}" \
+
+          # ECS cluster
+          aws ecs describe-clusters --clusters "$CLUSTER" \
+            --region "$REGION" \
             --query "clusters[?status=='ACTIVE']" --output text 2>/dev/null | grep -q . && \
-            import_if_exists aws_ecs_cluster.main shopsmart-cluster
+            import_if_exists aws_ecs_cluster.main "$CLUSTER"
+
+          # ECS services (cluster/service-name format)
+          aws ecs describe-services --cluster "$CLUSTER" \
+            --services shopsmart-backend-service \
+            --region "$REGION" \
+            --query "services[?status=='ACTIVE']" --output text 2>/dev/null | grep -q . && \
+            import_if_exists aws_ecs_service.backend "$CLUSTER/shopsmart-backend-service"
+          aws ecs describe-services --cluster "$CLUSTER" \
+            --services shopsmart-frontend-service \
+            --region "$REGION" \
+            --query "services[?status=='ACTIVE']" --output text 2>/dev/null | grep -q . && \
+            import_if_exists aws_ecs_service.frontend "$CLUSTER/shopsmart-frontend-service"
+
+          # S3 bucket (if it exists)
+          BUCKET=$(aws s3api list-buckets --query "Buckets[?starts_with(Name,'shopsmart-assets')].Name" --output text 2>/dev/null | head -1)
+          if [ -n "$BUCKET" ] && [ "$BUCKET" != "None" ]; then
+            import_if_exists aws_s3_bucket.shopsmart "$BUCKET"
+          fi
+
           echo "✅ Import step complete"
 
       - name: "Terraform — Plan"
