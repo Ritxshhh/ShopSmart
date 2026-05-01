@@ -337,6 +337,22 @@ jobs:
 
             REPO_DIR="$HOME/shopsmart"
 
+            # Ensure swap exists (prevents OOM on small instances)
+            if [ ! -f /swapfile ]; then
+              echo "===> Creating 1GB swap file..."
+              sudo fallocate -l 1G /swapfile
+              sudo chmod 600 /swapfile
+              sudo mkswap /swapfile
+              sudo swapon /swapfile
+              echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+            elif ! swapon --show | grep -q /swapfile; then
+              sudo swapon /swapfile
+            fi
+            echo "===> Swap: $(free -m | grep Swap | awk '{print $2}')MB"
+
+            # Limit Node.js memory to avoid OOM
+            export NODE_OPTIONS="--max-old-space-size=512"
+
             echo "===> Pulling latest code..."
             cd "$REPO_DIR"
             git fetch origin main
@@ -344,7 +360,7 @@ jobs:
 
             echo "===> Installing server dependencies..."
             cd "$REPO_DIR/server"
-            npm ci --omit=dev
+            npm install --omit=dev
             npx prisma generate
 
             echo "===> Running database migrations..."
@@ -352,7 +368,7 @@ jobs:
 
             echo "===> Building client..."
             cd "$REPO_DIR/client"
-            npm ci
+            npm install
             npm run build
 
             echo "===> Restarting server with pm2..."
