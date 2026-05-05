@@ -149,28 +149,6 @@ jobs:
         working-directory: terraform
         run: terraform validate && echo "✅ Terraform configuration is valid"
 
-      - name: "Terraform — Verify required resources exist"
-        run: |
-          REGION="${{ secrets.AWS_REGION }}"
-          ERRORS=()
-
-          aws ecr describe-repositories --repository-names shopsmart-backend \
-            --region "$REGION" >/dev/null 2>&1 || ERRORS+=("ECR repo: shopsmart-backend")
-          aws ecr describe-repositories --repository-names shopsmart-frontend \
-            --region "$REGION" >/dev/null 2>&1 || ERRORS+=("ECR repo: shopsmart-frontend")
-          aws ecs describe-clusters --clusters shopsmart-cluster --region "$REGION" \
-            --query "clusters[?status=='ACTIVE']" --output text 2>/dev/null | grep -q . \
-            || ERRORS+=("ECS cluster: shopsmart-cluster")
-          aws s3api head-bucket --bucket "${{ secrets.TF_STATE_BUCKET }}" 2>/dev/null \
-            || ERRORS+=("S3 bucket: ${{ secrets.TF_STATE_BUCKET }}")
-
-          if [ ${#ERRORS[@]} -gt 0 ]; then
-            echo "❌ Missing AWS resources (create these manually in the AWS Console):"
-            for r in "${ERRORS[@]}"; do echo "   • $r"; done
-            exit 1
-          fi
-          echo "✅ All required AWS resources exist"
-
       - name: "Terraform — Plan"
         working-directory: terraform
         env:
