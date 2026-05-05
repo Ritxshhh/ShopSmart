@@ -1,3 +1,4 @@
+// Displays the cart contents and calculates the total price of all items
 function CartSummary({ items }) {
   const total = items.reduce((sum, item) => sum + item.price, 0);
   return (

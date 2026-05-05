@@ -2,7 +2,9 @@ const express = require('express');
 
 const router = express.Router();
 
+// Factory function — receives the Prisma client instance injected from app.js
 module.exports = (prisma) => {
+  // GET /api/products — fetch all products
   router.get('/', async (_req, res) => {
     try {
       const products = await prisma.product.findMany();
@@ -12,6 +14,7 @@ module.exports = (prisma) => {
     }
   });
 
+  // GET /api/products/:id — fetch a single product by ID
   router.get('/:id', async (req, res) => {
     try {
       const product = await prisma.product.findUnique({
@@ -24,6 +27,7 @@ module.exports = (prisma) => {
     }
   });
 
+  // POST /api/products — create a new product (name and price are required)
   router.post('/', async (req, res) => {
     const { name, description, price, stock } = req.body;
     if (!name || price === undefined) {
@@ -39,6 +43,7 @@ module.exports = (prisma) => {
     }
   });
 
+  // PUT /api/products/:id — update an existing product by ID
   router.put('/:id', async (req, res) => {
     const { name, description, price, stock } = req.body;
     try {
@@ -47,6 +52,7 @@ module.exports = (prisma) => {
         data: {
           name,
           description,
+          // Only update numeric fields if they are provided in the request body
           price: price !== undefined ? Number(price) : undefined,
           stock: stock !== undefined ? Number(stock) : undefined,
         },
@@ -57,6 +63,7 @@ module.exports = (prisma) => {
     }
   });
 
+  // DELETE /api/products/:id — remove a product by ID
   router.delete('/:id', async (req, res) => {
     try {
       await prisma.product.delete({ where: { id: Number(req.params.id) } });

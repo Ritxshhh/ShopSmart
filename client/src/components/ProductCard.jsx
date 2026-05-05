@@ -1,3 +1,4 @@
+// Displays a single product with its name, price, stock, and an add-to-cart button
 function ProductCard({ product, onAddToCart }) {
   return (
     <div data-testid="product-card">

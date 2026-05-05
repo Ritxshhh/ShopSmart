@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 
 function App() {
+  // Holds the response from the backend health check endpoint
   const [data, setData] = useState(null);
 
+  // Fetch health status from the backend on initial mount
   useEffect(() => {
     const apiUrl = import.meta.env.VITE_API_URL || '';
     fetch(`${apiUrl}/api/health`)
@@ -16,6 +18,7 @@ function App() {
       <h1>ShopSmart</h1>
       <div className="card">
         <h2>Backend Status</h2>
+        {/* Show backend status once data is loaded, otherwise show a loading message */}
         {data ? (
           <div>
             <p>
