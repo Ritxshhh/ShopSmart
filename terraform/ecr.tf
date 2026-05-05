@@ -1,48 +1,22 @@
 # ============================================================
 # Amazon ECR — Container Registries
-# Stores Docker images for backend and frontend services.
-# Lifecycle policies keep only the last 5 images to control costs.
+# AWS Academy: resources are pre-created manually in the console.
+# Terraform imports them; it will NOT attempt to create them.
 # ============================================================
 
 # ── Backend ECR Repository ──────────────────────────────────
-resource "aws_ecr_repository" "backend" {
-  name         = var.ecr_backend_repo_name
-  force_delete = true # Allows terraform destroy even with images present
-
-  image_scanning_configuration {
-    scan_on_push = true # Scan every pushed image for vulnerabilities
-  }
-
-  image_tag_mutability = "MUTABLE"
-
-  tags = {
-    Name        = var.ecr_backend_repo_name
-    Environment = "lab"
-    Service     = "backend"
-  }
+data "aws_ecr_repository" "backend" {
+  name = var.ecr_backend_repo_name
 }
 
 # ── Frontend ECR Repository ─────────────────────────────────
-resource "aws_ecr_repository" "frontend" {
-  name         = var.ecr_frontend_repo_name
-  force_delete = true
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  image_tag_mutability = "MUTABLE"
-
-  tags = {
-    Name        = var.ecr_frontend_repo_name
-    Environment = "lab"
-    Service     = "frontend"
-  }
+data "aws_ecr_repository" "frontend" {
+  name = var.ecr_frontend_repo_name
 }
 
 # ── Lifecycle Policies (keep last 5 images) ──────────────────
 resource "aws_ecr_lifecycle_policy" "backend_policy" {
-  repository = aws_ecr_repository.backend.name
+  repository = data.aws_ecr_repository.backend.name
 
   policy = jsonencode({
     rules = [{
@@ -59,7 +33,7 @@ resource "aws_ecr_lifecycle_policy" "backend_policy" {
 }
 
 resource "aws_ecr_lifecycle_policy" "frontend_policy" {
-  repository = aws_ecr_repository.frontend.name
+  repository = data.aws_ecr_repository.frontend.name
 
   policy = jsonencode({
     rules = [{

@@ -108,6 +108,6 @@ variable "frontend_env_vars" {
 # ── S3 Bucket ──────────────────────────────────────────────
 variable "s3_bucket_prefix" {
   type        = string
-  default     = "shopsmart-assets"
-  description = "Full S3 bucket name when importing a pre-existing bucket (set via S3_BUCKET_PREFIX secret), or prefix used for new bucket creation"
+  default     = "bucketaws12341234"
+  description = "Name of the pre-existing S3 bucket created manually in AWS Console"
 }

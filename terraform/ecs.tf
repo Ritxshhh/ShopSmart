@@ -1,26 +1,15 @@
 # ============================================================
 # Amazon ECS — Fargate Cluster, Task Definitions & Services
-# AWS Academy compatible: references pre-existing LabRole (no IAM creation)
+# AWS Academy: cluster is pre-created manually in the console.
+# Terraform reads it via data source; task defs + services are managed.
 # ============================================================
 
-# ── ECS Cluster ──────────────────────────────────────────────
-resource "aws_ecs_cluster" "main" {
-  name = var.ecs_cluster_name
-
-  setting {
-    name  = "containerInsights"
-    value = "disabled" # Disabled for AWS Academy cost constraints
-  }
-
-  tags = {
-    Name        = var.ecs_cluster_name
-    Environment = "lab"
-  }
+# ── ECS Cluster (pre-existing, read-only) ────────────────────
+data "aws_ecs_cluster" "main" {
+  cluster_name = var.ecs_cluster_name
 }
 
 # ── Backend Task Definition ──────────────────────────────────
-# Uses Fargate launch type with awsvpc networking.
-# Image URI is built from the ECR repo URL + git SHA tag.
 resource "aws_ecs_task_definition" "backend" {
   family                   = "shopsmart-backend"
   network_mode             = "awsvpc"
@@ -35,7 +24,7 @@ resource "aws_ecs_task_definition" "backend" {
   container_definitions = jsonencode([
     {
       name      = "backend"
-      image     = "${aws_ecr_repository.backend.repository_url}:${var.image_tag}"
+      image     = "${data.aws_ecr_repository.backend.repository_url}:${var.image_tag}"
       essential = true
 
       portMappings = [
@@ -52,7 +41,6 @@ resource "aws_ecs_task_definition" "backend" {
         }
       ]
 
-      # CloudWatch Logs — auto-creates the log group
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -85,7 +73,7 @@ resource "aws_ecs_task_definition" "frontend" {
   container_definitions = jsonencode([
     {
       name      = "frontend"
-      image     = "${aws_ecr_repository.frontend.repository_url}:${var.image_tag}"
+      image     = "${data.aws_ecr_repository.frontend.repository_url}:${var.image_tag}"
       essential = true
 
       portMappings = [
@@ -121,10 +109,9 @@ resource "aws_ecs_task_definition" "frontend" {
 }
 
 # ── Backend ECS Service ──────────────────────────────────────
-# force_new_deployment ensures every apply picks up the latest image
 resource "aws_ecs_service" "backend" {
   name            = "shopsmart-backend-service"
-  cluster         = aws_ecs_cluster.main.id
+  cluster         = data.aws_ecs_cluster.main.arn
   task_definition = aws_ecs_task_definition.backend.arn
   desired_count   = var.service_desired_count
   launch_type     = "FARGATE"
@@ -137,7 +124,7 @@ resource "aws_ecs_service" "backend" {
   network_configuration {
     subnets          = var.subnet_ids
     security_groups  = [var.security_group_id]
-    assign_public_ip = true # Required for Fargate tasks in public subnets
+    assign_public_ip = true
   }
 
   tags = {
@@ -150,7 +137,7 @@ resource "aws_ecs_service" "backend" {
 # ── Frontend ECS Service ─────────────────────────────────────
 resource "aws_ecs_service" "frontend" {
   name            = "shopsmart-frontend-service"
-  cluster         = aws_ecs_cluster.main.id
+  cluster         = data.aws_ecs_cluster.main.arn
   task_definition = aws_ecs_task_definition.frontend.arn
   desired_count   = var.service_desired_count
   launch_type     = "FARGATE"
