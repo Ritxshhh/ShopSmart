@@ -1,6 +1,8 @@
 # ============================================================
 # Terraform Provider & Backend Configuration
 # AWS Academy compatible — uses pre-existing LabRole
+# S3 backend removed: s3:CreateBucket is blocked by lab policy.
+# State is kept locally; re-initialise with: terraform init
 # ============================================================
 
 terraform {
@@ -13,9 +15,8 @@ terraform {
     }
   }
 
-  # Backend block is overridden at init time via backend.override.tf generated in CI.
-  # S3 remote state when TF_STATE_BUCKET is set, local state otherwise.
-  backend "s3" {}
+  # Local backend — no S3 bucket needed
+  backend "local" {}
 }
 
 provider "aws" {

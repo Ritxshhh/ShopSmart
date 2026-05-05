@@ -11,30 +11,30 @@ variable "aws_region" {
   description = "AWS region where all resources will be provisioned"
 }
 
-# ── ECR Repositories ───────────────────────────────────────
-variable "ecr_backend_repo_name" {
-  type        = string
-  default     = "shopsmart-backend"
-  description = "Name of the ECR repository for the backend Docker image"
-}
-
-variable "ecr_frontend_repo_name" {
-  type        = string
-  default     = "shopsmart-frontend"
-  description = "Name of the ECR repository for the frontend Docker image"
-}
-
-# ── ECS Cluster & Services ─────────────────────────────────
+# ── ECS Cluster ─────────────────────────────────────────────
 variable "ecs_cluster_name" {
   type        = string
   default     = "shopsmart-cluster"
-  description = "Name of the ECS Fargate cluster"
+  description = "Name of the pre-existing ECS Fargate cluster"
 }
 
 variable "service_desired_count" {
   type        = number
   default     = 1
   description = "Desired number of running tasks per ECS service"
+}
+
+# ── Docker Hub Image URLs ────────────────────────────────────
+# Passed in as TF_VAR_backend_image / TF_VAR_frontend_image.
+# ECR is blocked by the AWS Academy lab policy (voc-cancel-cred).
+variable "backend_image" {
+  type        = string
+  description = "Full Docker image URL for the backend, e.g. dockerhubuser/shopsmart-backend:abc12345"
+}
+
+variable "frontend_image" {
+  type        = string
+  description = "Full Docker image URL for the frontend, e.g. dockerhubuser/shopsmart-frontend:abc12345"
 }
 
 # ── Container Resources ────────────────────────────────────
@@ -75,12 +75,6 @@ variable "frontend_port" {
   description = "Port exposed by the frontend container (nginx on 8080)"
 }
 
-# ── Docker Image Tag ───────────────────────────────────────
-variable "image_tag" {
-  type        = string
-  description = "Docker image tag (typically the Git SHA) — required at plan time"
-}
-
 # ── Networking ──────────────────────────────────────────────
 variable "subnet_ids" {
   type        = list(string)
@@ -103,11 +97,4 @@ variable "frontend_env_vars" {
   type        = map(string)
   default     = {}
   description = "Key-value environment variables injected into the frontend container"
-}
-
-# ── S3 Bucket ──────────────────────────────────────────────
-variable "s3_bucket_prefix" {
-  type        = string
-  default     = "bucketaws12341234"
-  description = "Name of the S3 bucket created by Terraform"
 }

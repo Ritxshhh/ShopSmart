@@ -6,15 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  TF_VERSION: "1.5.7"
-  TF_IN_AUTOMATION: "true"
-  TF_VAR_subnet_ids: '["${{ secrets.AWS_SUBNET_ID }}"]'
-  TF_VAR_security_group_id: ${{ secrets.AWS_SECURITY_GROUP_ID }}
-  ECR_BACKEND_REPO: shopsmart-backend
-  ECR_FRONTEND_REPO: shopsmart-frontend
-  ECS_CLUSTER: shopsmart-cluster
-
 jobs:
 
   # ── Phase 1 — Tests ─────────────────────────────────────────
@@ -55,223 +46,24 @@ jobs:
         working-directory: client
         run: npx vitest run
 
-  # ── Phase 2 — Terraform ─────────────────────────────────────
-  terraform:
-    name: "Phase 2 — Terraform"
+  # ── Phase 2 — Build & push Docker images to Docker Hub ──────
+  # NOTE: ECR is blocked by AWS Academy policy (voc-cancel-cred).
+  # Docker Hub is used as the container registry instead.
+  build:
+    name: "Phase 2 — Build & Push Docker Images"
     runs-on: ubuntu-latest
     needs: [test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Validate required AWS secrets
-        run: |
-          MISSING=()
-          [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]     && MISSING+=("AWS_ACCESS_KEY_ID")
-          [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ] && MISSING+=("AWS_SECRET_ACCESS_KEY")
-          [ -z "${{ secrets.AWS_REGION }}" ]            && MISSING+=("AWS_REGION")
-          [ -z "${{ secrets.AWS_SUBNET_ID }}" ]         && MISSING+=("AWS_SUBNET_ID")
-          [ -z "${{ secrets.AWS_SECURITY_GROUP_ID }}" ] && MISSING+=("AWS_SECURITY_GROUP_ID")
-          [ -z "${{ secrets.TF_STATE_BUCKET }}" ]       && MISSING+=("TF_STATE_BUCKET")
-          if [ ${#MISSING[@]} -gt 0 ]; then
-            echo "❌ Missing required secrets:"
-            for s in "${MISSING[@]}"; do echo "   • $s"; done
-            exit 1
-          fi
-          echo "✅ All required AWS secrets are present"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region:            ${{ secrets.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Prepare Terraform state backend
-        run: |
-          BUCKET=$(echo "${{ secrets.TF_STATE_BUCKET }}" | tr -d '[:space:]')
-          REGION="${{ secrets.AWS_REGION }}"
-          USE_S3=false
-          if [ -n "$BUCKET" ]; then
-            if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-              echo "✅ State bucket exists: $BUCKET"
-              USE_S3=true
-            else
-              echo "Creating state bucket: $BUCKET"
-              aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" \
-                --create-bucket-configuration LocationConstraint="$REGION" 2>/dev/null || \
-              aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" 2>/dev/null || \
-              { echo "⚠️  Could not create bucket — falling back to local state"; USE_S3=false; }
-              if [ "$USE_S3" != "false" ]; then
-                aws s3api put-bucket-versioning --bucket "$BUCKET" \
-                  --versioning-configuration Status=Enabled
-                aws s3api put-bucket-encryption --bucket "$BUCKET" \
-                  --server-side-encryption-configuration \
-                  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
-                aws s3api put-public-access-block --bucket "$BUCKET" \
-                  --public-access-block-configuration \
-                  "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
-                USE_S3=true
-              fi
-            fi
-          else
-            echo "⚠️  TF_STATE_BUCKET not set — using local state"
-          fi
-          echo "USE_S3=$USE_S3" >> "$GITHUB_ENV"
-
-      - name: "Terraform — Init"
-        working-directory: terraform
-        run: |
-          BUCKET=$(echo "${{ secrets.TF_STATE_BUCKET }}" | tr -d '[:space:]')
-          if [ "$USE_S3" = "true" ]; then
-            terraform init -upgrade -input=false -reconfigure \
-              -backend-config="bucket=${BUCKET}" \
-              -backend-config="key=shopsmart/terraform.tfstate" \
-              -backend-config="region=${{ secrets.AWS_REGION }}" \
-              -backend-config="encrypt=true"
-          else
-            cat > override.tf <<'EOF'
-          terraform {
-            backend "local" {}
-          }
-          EOF
-            terraform init -upgrade -input=false -reconfigure
-          fi
-          echo "✅ Terraform initialized"
-
-      - name: "Terraform — Validate"
-        working-directory: terraform
-        run: terraform validate && echo "✅ Terraform configuration is valid"
-
-      - name: "Terraform — Plan"
-        working-directory: terraform
-        env:
-          TF_VAR_image_tag: latest
-          TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
-          TF_VAR_s3_bucket_prefix: ${{ secrets.S3_BUCKET_PREFIX }}
-        run: terraform plan -input=false -out=tfplan && echo "✅ Plan generated"
-
-      - name: "Terraform — Apply"
-        working-directory: terraform
-        env:
-          TF_VAR_image_tag: latest
-          TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
-          TF_VAR_s3_bucket_prefix: ${{ secrets.S3_BUCKET_PREFIX }}
-        run: terraform apply -input=false -auto-approve tfplan && echo "✅ Infrastructure provisioned"
-
-  # ── Phase 3 — Build & Push to ECR ───────────────────────────
-  build-push:
-    name: "Phase 3 — Build & Push"
-    runs-on: ubuntu-latest
-    needs: [terraform]
     outputs:
-      image-tag: ${{ github.sha }}
+      image_tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region:            ${{ secrets.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: "Build & push — Backend"
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          IMAGE_URI=$REGISTRY/${{ env.ECR_BACKEND_REPO }}
-          docker build -f docker/dockerFIle.backend -t "$IMAGE_URI:$IMAGE_TAG" -t "$IMAGE_URI:latest" .
-          docker push "$IMAGE_URI:$IMAGE_TAG"
-          docker push "$IMAGE_URI:latest"
-          echo "✅ Backend pushed: $IMAGE_URI:$IMAGE_TAG"
-
-      - name: "Build & push — Frontend"
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          IMAGE_URI=$REGISTRY/${{ env.ECR_FRONTEND_REPO }}
-          docker build -f docker/dockerFile.frontend -t "$IMAGE_URI:$IMAGE_TAG" -t "$IMAGE_URI:latest" .
-          docker push "$IMAGE_URI:$IMAGE_TAG"
-          docker push "$IMAGE_URI:latest"
-          echo "✅ Frontend pushed: $IMAGE_URI:$IMAGE_TAG"
-
-  # ── Phase 4 — Deploy to ECS Fargate ─────────────────────────
-  deploy-ecs:
-    name: "Phase 4 — Deploy ECS"
-    runs-on: ubuntu-latest
-    needs: [build-push]
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region:            ${{ secrets.AWS_REGION }}
-
-      - name: "Deploy — Backend service"
-        run: |
-          aws ecs update-service \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --service shopsmart-backend-service \
-            --force-new-deployment \
-            --region "${{ secrets.AWS_REGION }}"
-          echo "✅ Backend deployment triggered"
-
-      - name: "Deploy — Frontend service"
-        run: |
-          aws ecs update-service \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --service shopsmart-frontend-service \
-            --force-new-deployment \
-            --region "${{ secrets.AWS_REGION }}"
-          echo "✅ Frontend deployment triggered"
-
-      - name: "Verify — Backend stability"
-        run: |
-          aws ecs wait services-stable \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --services shopsmart-backend-service \
-            --region "${{ secrets.AWS_REGION }}" || \
-          { echo "❌ Backend failed to stabilize"; exit 1; }
-          echo "✅ Backend service is stable"
-
-      - name: "Verify — Frontend stability"
-        run: |
-          aws ecs wait services-stable \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --services shopsmart-frontend-service \
-            --region "${{ secrets.AWS_REGION }}" || \
-          { echo "❌ Frontend failed to stabilize"; exit 1; }
-          echo "✅ Frontend service is stable"
-
-  # ── Phase 5 — Deploy to EC2 (pm2) ───────────────────────────
-  deploy-ec2:
-    name: "Phase 5 — Deploy to EC2"
-    runs-on: ubuntu-latest
-    needs: [test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
       - name: Validate required secrets
         run: |
           MISSING=()
-          [ -z "${{ secrets.EC2_HOST }}" ] && MISSING+=("EC2_HOST")
-          [ -z "${{ secrets.EC2_USER }}" ] && MISSING+=("EC2_USER")
-          [ -z "${{ secrets.EC2_KEY }}" ]  && MISSING+=("EC2_KEY")
+          [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ] && MISSING+=("DOCKERHUB_USERNAME")
+          [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]    && MISSING+=("DOCKERHUB_TOKEN")
           if [ ${#MISSING[@]} -gt 0 ]; then
             echo "❌ Missing required secrets:"
             for s in "${MISSING[@]}"; do echo "   • $s"; done
@@ -279,59 +71,171 @@ jobs:
           fi
           echo "✅ All required secrets are present"
 
-      - name: Deploy to EC2 via SSH
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Set image tag
+        id: meta
+        run: echo "tag=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          script_stop: true
-          script: |
-            set -euo pipefail
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            REPO_DIR="$HOME/shopsmart"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-            # Ensure swap exists (prevents OOM on small instances)
-            if [ ! -f /swapfile ]; then
-              echo "===> Creating 1GB swap file..."
-              sudo fallocate -l 1G /swapfile
-              sudo chmod 600 /swapfile
-              sudo mkswap /swapfile
-              sudo swapon /swapfile
-              echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-            elif ! swapon --show | grep -q /swapfile; then
-              sudo swapon /swapfile
-            fi
-            echo "===> Swap: $(free -m | grep Swap | awk '{print $2}')MB"
+      # ── Backend image ──
+      - name: "Build & push backend image"
+        uses: docker/build-push-action@v5
+        with:
+          context: ./server
+          file: ./docker/dockerFIle.backend
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/shopsmart-backend:${{ steps.meta.outputs.tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/shopsmart-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-            # Limit Node.js memory to avoid OOM
-            export NODE_OPTIONS="--max-old-space-size=512"
+      # ── Frontend image ──
+      - name: "Build & push frontend image"
+        uses: docker/build-push-action@v5
+        with:
+          context: ./client
+          file: ./docker/dockerFIle.frontend
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/shopsmart-frontend:${{ steps.meta.outputs.tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/shopsmart-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-            echo "===> Pulling latest code..."
-            cd "$REPO_DIR"
-            git fetch origin main
-            git reset --hard origin/main
+  # ── Phase 3 — Provision infrastructure with Terraform ───────
+  # NOTE: Uses local Terraform state (S3 backend blocked by lab policy).
+  # ECR and S3 resources are excluded from Terraform for the same reason.
+  infrastructure:
+    name: "Phase 3 — Terraform (ECS)"
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
 
-            echo "===> Installing server dependencies..."
-            cd "$REPO_DIR/server"
-            npm install --omit=dev
-            npx prisma generate
+      - name: Validate required secrets
+        run: |
+          MISSING=()
+          [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]     && MISSING+=("AWS_ACCESS_KEY_ID")
+          [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ] && MISSING+=("AWS_SECRET_ACCESS_KEY")
+          [ -z "${{ secrets.AWS_SESSION_TOKEN }}" ]     && MISSING+=("AWS_SESSION_TOKEN")
+          [ -z "${{ secrets.TF_VAR_SUBNET_IDS }}" ]     && MISSING+=("TF_VAR_SUBNET_IDS")
+          [ -z "${{ secrets.TF_VAR_SG_ID }}" ]          && MISSING+=("TF_VAR_SG_ID")
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "❌ Missing required secrets:"
+            for s in "${MISSING[@]}"; do echo "   • $s"; done
+            exit 1
+          fi
+          echo "✅ All required secrets are present"
 
-            echo "===> Running database migrations..."
-            npx prisma migrate deploy || echo "⚠️  Migration skipped (no pending migrations or no DB configured)"
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            us-east-1
 
-            echo "===> Building client..."
-            cd "$REPO_DIR/client"
-            npm install
-            npm run build
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.5"
 
-            echo "===> Restarting server with pm2..."
-            cd "$REPO_DIR/server"
-            if pm2 describe shopsmart > /dev/null 2>&1; then
-              pm2 restart shopsmart
-            else
-              pm2 start src/index.js --name shopsmart
-            fi
-            pm2 save
+      # Use local backend — S3 backend is blocked by lab policy
+      - name: Write local backend override
+        working-directory: terraform
+        run: |
+          cat > backend_override.tf <<'EOF'
+          terraform {
+            backend "local" {}
+          }
+          EOF
 
-            echo "✅ Deployment complete!"
+      - name: Terraform Init (local backend)
+        working-directory: terraform
+        run: terraform init -reconfigure
+
+      - name: Terraform Validate
+        working-directory: terraform
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: terraform
+        env:
+          TF_VAR_image_tag:          "${{ needs.build.outputs.image_tag }}"
+          TF_VAR_subnet_ids:         ${{ secrets.TF_VAR_SUBNET_IDS }}
+          TF_VAR_security_group_id:  ${{ secrets.TF_VAR_SG_ID }}
+          # Point ECS task definitions at Docker Hub images instead of ECR
+          TF_VAR_backend_image:      "${{ secrets.DOCKERHUB_USERNAME }}/shopsmart-backend:${{ needs.build.outputs.image_tag }}"
+          TF_VAR_frontend_image:     "${{ secrets.DOCKERHUB_USERNAME }}/shopsmart-frontend:${{ needs.build.outputs.image_tag }}"
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Show outputs
+        working-directory: terraform
+        run: terraform output
+
+  # ── Phase 4 — Force ECS service redeployment ────────────────
+  deploy-ecs:
+    name: "Phase 4 — Deploy to ECS Fargate"
+    runs-on: ubuntu-latest
+    needs: [build, infrastructure]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            us-east-1
+
+      - name: Force redeploy backend service
+        run: |
+          aws ecs update-service \
+            --cluster shopsmart-cluster \
+            --service shopsmart-backend-service \
+            --force-new-deployment \
+            --query 'service.serviceName' \
+            --output text
+          echo "✅ Backend service redeployment triggered"
+
+      - name: Force redeploy frontend service
+        run: |
+          aws ecs update-service \
+            --cluster shopsmart-cluster \
+            --service shopsmart-frontend-service \
+            --force-new-deployment \
+            --query 'service.serviceName' \
+            --output text
+          echo "✅ Frontend service redeployment triggered"
+
+      - name: Wait for backend to stabilize
+        run: |
+          echo "⏳ Waiting for backend service to reach steady state..."
+          aws ecs wait services-stable \
+            --cluster shopsmart-cluster \
+            --services shopsmart-backend-service
+          echo "✅ Backend service is stable"
+
+      - name: Wait for frontend to stabilize
+        run: |
+          echo "⏳ Waiting for frontend service to reach steady state..."
+          aws ecs wait services-stable \
+            --cluster shopsmart-cluster \
+            --services shopsmart-frontend-service
+          echo "✅ Frontend service is stable"
+
+      - name: "✅ Deployment complete"
+        run: echo "🚀 ShopSmart deployed to ECS Fargate successfully!"

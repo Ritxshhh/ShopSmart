@@ -1,11 +1,13 @@
 # ============================================================
 # Amazon ECS — Fargate Cluster, Task Definitions & Services
-# The ECS cluster is managed by Terraform.
+# Cluster is pre-existing (referenced via data source).
+# Images come from Docker Hub via TF_VAR_backend_image /
+# TF_VAR_frontend_image — ECR is blocked by lab policy.
 # ============================================================
 
-# ── ECS Cluster ─────────────────────────────────────────────
-resource "aws_ecs_cluster" "main" {
-  name = var.ecs_cluster_name
+# ── ECS Cluster (pre-existing, do NOT create) ────────────────
+data "aws_ecs_cluster" "main" {
+  cluster_name = var.ecs_cluster_name
 }
 
 # ── Backend Task Definition ──────────────────────────────────
@@ -23,7 +25,7 @@ resource "aws_ecs_task_definition" "backend" {
   container_definitions = jsonencode([
     {
       name      = "backend"
-      image     = "${aws_ecr_repository.backend.repository_url}:${var.image_tag}"
+      image     = var.backend_image   # Docker Hub image, e.g. user/shopsmart-backend:abc12345
       essential = true
 
       portMappings = [
@@ -72,7 +74,7 @@ resource "aws_ecs_task_definition" "frontend" {
   container_definitions = jsonencode([
     {
       name      = "frontend"
-      image     = "${aws_ecr_repository.frontend.repository_url}:${var.image_tag}"
+      image     = var.frontend_image   # Docker Hub image, e.g. user/shopsmart-frontend:abc12345
       essential = true
 
       portMappings = [
@@ -110,7 +112,7 @@ resource "aws_ecs_task_definition" "frontend" {
 # ── Backend ECS Service ──────────────────────────────────────
 resource "aws_ecs_service" "backend" {
   name            = "shopsmart-backend-service"
-  cluster         = aws_ecs_cluster.main.arn
+  cluster         = data.aws_ecs_cluster.main.arn
   task_definition = aws_ecs_task_definition.backend.arn
   desired_count   = var.service_desired_count
   launch_type     = "FARGATE"
@@ -136,7 +138,7 @@ resource "aws_ecs_service" "backend" {
 # ── Frontend ECS Service ─────────────────────────────────────
 resource "aws_ecs_service" "frontend" {
   name            = "shopsmart-frontend-service"
-  cluster         = aws_ecs_cluster.main.arn
+  cluster         = data.aws_ecs_cluster.main.arn
   task_definition = aws_ecs_task_definition.frontend.arn
   desired_count   = var.service_desired_count
   launch_type     = "FARGATE"
