@@ -109,5 +109,5 @@ variable "frontend_env_vars" {
 variable "s3_bucket_prefix" {
   type        = string
   default     = "shopsmart-assets"
-  description = "Prefix for the S3 bucket name (a random suffix is appended for uniqueness)"
+  description = "Full S3 bucket name when importing a pre-existing bucket (set via S3_BUCKET_PREFIX secret), or prefix used for new bucket creation"
 }

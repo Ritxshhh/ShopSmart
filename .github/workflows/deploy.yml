@@ -72,6 +72,8 @@ jobs:
           [ -z "${{ secrets.AWS_REGION }}" ]            && MISSING+=("AWS_REGION")
           [ -z "${{ secrets.AWS_SUBNET_ID }}" ]         && MISSING+=("AWS_SUBNET_ID")
           [ -z "${{ secrets.AWS_SECURITY_GROUP_ID }}" ] && MISSING+=("AWS_SECURITY_GROUP_ID")
+          [ -z "${{ secrets.S3_BUCKET_NAME }}" ]        && MISSING+=("S3_BUCKET_NAME")
+          [ -z "${{ secrets.S3_BUCKET_PREFIX }}" ]      && MISSING+=("S3_BUCKET_PREFIX")
           if [ ${#MISSING[@]} -gt 0 ]; then
             echo "❌ Missing required secrets:"
             for s in "${MISSING[@]}"; do echo "   • $s"; done
@@ -153,46 +155,65 @@ jobs:
         env:
           TF_VAR_image_tag: latest
           TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
+          TF_VAR_s3_bucket_prefix: ${{ secrets.S3_BUCKET_PREFIX }}
         run: |
-          import_if_exists() {
+          do_import() {
             local resource=$1 id=$2
-            terraform state show "$resource" >/dev/null 2>&1 && return
-            terraform import -input=false "$resource" "$id" 2>/dev/null || true
+            terraform state show "$resource" >/dev/null 2>&1 && { echo "  ↩ already in state: $resource"; return; }
+            terraform import -input=false "$resource" "$id"
           }
 
           REGION="${{ secrets.AWS_REGION }}"
           CLUSTER="shopsmart-cluster"
+          MISSING=()
 
-          # ECR repositories
-          aws ecr describe-repositories --repository-names shopsmart-backend \
-            --region "$REGION" >/dev/null 2>&1 && \
-            import_if_exists aws_ecr_repository.backend shopsmart-backend
-          aws ecr describe-repositories --repository-names shopsmart-frontend \
-            --region "$REGION" >/dev/null 2>&1 && \
-            import_if_exists aws_ecr_repository.frontend shopsmart-frontend
+          # ECR — must exist in Console before running this pipeline
+          aws ecr describe-repositories --repository-names shopsmart-backend --region "$REGION" >/dev/null 2>&1 \
+            && do_import aws_ecr_repository.backend shopsmart-backend \
+            || MISSING+=("ECR repo: shopsmart-backend")
+
+          aws ecr describe-repositories --repository-names shopsmart-frontend --region "$REGION" >/dev/null 2>&1 \
+            && do_import aws_ecr_repository.frontend shopsmart-frontend \
+            || MISSING+=("ECR repo: shopsmart-frontend")
 
           # ECS cluster
-          aws ecs describe-clusters --clusters "$CLUSTER" \
-            --region "$REGION" \
-            --query "clusters[?status=='ACTIVE']" --output text 2>/dev/null | grep -q . && \
-            import_if_exists aws_ecs_cluster.main "$CLUSTER"
+          aws ecs describe-clusters --clusters "$CLUSTER" --region "$REGION" \
+            --query "clusters[?status=='ACTIVE']" --output text 2>/dev/null | grep -q . \
+            && do_import aws_ecs_cluster.main "$CLUSTER" \
+            || MISSING+=("ECS cluster: $CLUSTER")
 
-          # ECS services (cluster/service-name format)
-          aws ecs describe-services --cluster "$CLUSTER" \
-            --services shopsmart-backend-service \
-            --region "$REGION" \
-            --query "services[?status=='ACTIVE']" --output text 2>/dev/null | grep -q . && \
-            import_if_exists aws_ecs_service.backend "$CLUSTER/shopsmart-backend-service"
-          aws ecs describe-services --cluster "$CLUSTER" \
-            --services shopsmart-frontend-service \
-            --region "$REGION" \
-            --query "services[?status=='ACTIVE']" --output text 2>/dev/null | grep -q . && \
-            import_if_exists aws_ecs_service.frontend "$CLUSTER/shopsmart-frontend-service"
+          # ECS services (only attempt if cluster was found)
+          aws ecs describe-services --cluster "$CLUSTER" --services shopsmart-backend-service \
+            --region "$REGION" --query "services[?status=='ACTIVE']" --output text 2>/dev/null | grep -q . \
+            && do_import aws_ecs_service.backend "$CLUSTER/shopsmart-backend-service" \
+            || echo "  ⚠ ECS service shopsmart-backend-service not found — will be created by apply"
 
-          # S3 bucket (if it exists)
-          BUCKET=$(aws s3api list-buckets --query "Buckets[?starts_with(Name,'shopsmart-assets')].Name" --output text 2>/dev/null | head -1)
-          if [ -n "$BUCKET" ] && [ "$BUCKET" != "None" ]; then
-            import_if_exists aws_s3_bucket.shopsmart "$BUCKET"
+          aws ecs describe-services --cluster "$CLUSTER" --services shopsmart-frontend-service \
+            --region "$REGION" --query "services[?status=='ACTIVE']" --output text 2>/dev/null | grep -q . \
+            && do_import aws_ecs_service.frontend "$CLUSTER/shopsmart-frontend-service" \
+            || echo "  ⚠ ECS service shopsmart-frontend-service not found — will be created by apply"
+
+          # S3 bucket
+          S3_BUCKET="${{ secrets.S3_BUCKET_NAME }}"
+          if [ -n "$S3_BUCKET" ]; then
+            aws s3api head-bucket --bucket "$S3_BUCKET" 2>/dev/null \
+              && do_import aws_s3_bucket.shopsmart "$S3_BUCKET" \
+              || MISSING+=("S3 bucket: $S3_BUCKET")
+          else
+            MISSING+=("GitHub secret S3_BUCKET_NAME is not set")
+          fi
+
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo ""
+            echo "❌ The following resources must be created manually in the AWS Console"
+            echo "   before this pipeline can run (AWS Academy blocks Terraform from creating them):"
+            for r in "${MISSING[@]}"; do echo "   • $r"; done
+            echo ""
+            echo "   Steps:"
+            echo "   1. Go to AWS Console → ECR → Create repos: shopsmart-backend, shopsmart-frontend"
+            echo "   2. Go to AWS Console → ECS → Create cluster: shopsmart-cluster (Fargate)"
+            echo "   3. Go to AWS Console → S3 → Create bucket, then set S3_BUCKET_NAME secret"
+            exit 1
           fi
 
           echo "✅ Import step complete"
@@ -202,6 +223,7 @@ jobs:
         env:
           TF_VAR_image_tag: latest
           TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
+          TF_VAR_s3_bucket_prefix: ${{ secrets.S3_BUCKET_PREFIX }}
         run: terraform plan -input=false -out=tfplan && echo "✅ Plan generated"
 
       - name: "Terraform — Apply"
@@ -209,6 +231,7 @@ jobs:
         env:
           TF_VAR_image_tag: latest
           TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
+          TF_VAR_s3_bucket_prefix: ${{ secrets.S3_BUCKET_PREFIX }}
         run: terraform apply -input=false -auto-approve tfplan && echo "✅ Infrastructure provisioned"
 
   # ── Phase 3 — Build & Push to ECR ───────────────────────────

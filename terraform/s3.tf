@@ -7,15 +7,10 @@
 #   ✅ Public access fully blocked
 # ============================================================
 
-# Generate a random suffix for globally unique bucket naming
-resource "random_id" "bucket_suffix" {
-  byte_length = 4
-}
-
 # ── S3 Bucket ────────────────────────────────────────────────
 resource "aws_s3_bucket" "shopsmart" {
-  bucket        = "${var.s3_bucket_prefix}-${random_id.bucket_suffix.hex}"
-  force_destroy = true # Allow terraform destroy to remove non-empty bucket
+  bucket        = var.s3_bucket_prefix
+  force_destroy = true
 
   tags = {
     Name        = var.s3_bucket_prefix
