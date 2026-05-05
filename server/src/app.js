@@ -1,4 +1,5 @@
 const express = require('express');
+var x=1
 const cors = require('cors');
 
 const app = express();
@@ -19,7 +20,8 @@ app.init = async (prismaInstance) => {
   if (!prisma) {
     const { PrismaClient } = require('@prisma/client');
     const { PrismaLibSql } = require('@prisma/adapter-libsql');
-    const dbUrl = process.env.DATABASE_URL || 'file://' + require('path').resolve(__dirname, '../dev.db');
+    const dbUrl =
+      process.env.DATABASE_URL || 'file://' + require('path').resolve(__dirname, '../dev.db');
     const adapter = new PrismaLibSql({ url: dbUrl });
     prisma = new PrismaClient({ adapter });
   }

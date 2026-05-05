@@ -14,7 +14,11 @@ const mockPrisma = {
 const app = express();
 app.use(express.json());
 app.get('/api/health', (_req, res) =>
-  res.json({ status: 'ok', message: 'ShopSmart Backend is running', timestamp: new Date().toISOString() })
+  res.json({
+    status: 'ok',
+    message: 'ShopSmart Backend is running',
+    timestamp: new Date().toISOString(),
+  })
 );
 app.use('/api/products', require('../src/routes/products')(mockPrisma));
 
@@ -28,7 +32,9 @@ describe('GET /api/health', () => {
 
 describe('GET /api/products', () => {
   it('returns list of products', async () => {
-    mockPrisma.product.findMany.mockResolvedValue([{ id: 1, name: 'Widget', price: 9.99, stock: 10 }]);
+    mockPrisma.product.findMany.mockResolvedValue([
+      { id: 1, name: 'Widget', price: 9.99, stock: 10 },
+    ]);
     const res = await request(app).get('/api/products');
     expect(res.statusCode).toBe(200);
     expect(res.body).toHaveLength(1);
@@ -44,7 +50,12 @@ describe('GET /api/products', () => {
 
 describe('GET /api/products/:id', () => {
   it('returns a single product', async () => {
-    mockPrisma.product.findUnique.mockResolvedValue({ id: 1, name: 'Widget', price: 9.99, stock: 10 });
+    mockPrisma.product.findUnique.mockResolvedValue({
+      id: 1,
+      name: 'Widget',
+      price: 9.99,
+      stock: 10,
+    });
     const res = await request(app).get('/api/products/1');
     expect(res.statusCode).toBe(200);
     expect(res.body.name).toBe('Widget');
@@ -67,7 +78,9 @@ describe('POST /api/products', () => {
   it('creates a product and returns 201', async () => {
     const newProduct = { id: 1, name: 'Gadget', price: 19.99, stock: 5 };
     mockPrisma.product.create.mockResolvedValue(newProduct);
-    const res = await request(app).post('/api/products').send({ name: 'Gadget', price: 19.99, stock: 5 });
+    const res = await request(app)
+      .post('/api/products')
+      .send({ name: 'Gadget', price: 19.99, stock: 5 });
     expect(res.statusCode).toBe(201);
     expect(res.body.name).toBe('Gadget');
   });

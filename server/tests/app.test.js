@@ -14,7 +14,11 @@ const mockPrisma = {
 const app = express();
 app.use(express.json());
 app.get('/api/health', (_req, res) =>
-  res.json({ status: 'ok', message: 'ShopSmart Backend is running', timestamp: new Date().toISOString() })
+  res.json({
+    status: 'ok',
+    message: 'ShopSmart Backend is running',
+    timestamp: new Date().toISOString(),
+  })
 );
 app.use('/api/products', require('../src/routes/products')(mockPrisma));
 app.get('/', (_req, res) => res.send('ShopSmart Backend Service'));
