@@ -73,6 +73,10 @@ jobs:
         working-directory: server
         run: npm ci
 
+      - name: Backend — Generate Prisma client
+        working-directory: server
+        run: npx prisma generate
+
       - name: Backend — Run tests
         working-directory: server
         run: npx --no-install vitest run --reporter=junit --outputFile=test-results/junit.xml
