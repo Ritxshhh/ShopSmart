@@ -75,7 +75,7 @@ jobs:
 
       - name: Backend — Run tests
         working-directory: server
-        run: npx vitest run --reporter=junit --outputFile=test-results/junit.xml
+        run: npx --no-install vitest run --reporter=junit --outputFile=test-results/junit.xml
 
       - name: Backend — Upload test results
         if: always()
@@ -91,7 +91,7 @@ jobs:
 
       - name: Frontend — Run tests
         working-directory: client
-        run: npx vitest run --reporter=junit --outputFile=test-results/junit.xml
+        run: npx --no-install vitest run --reporter=junit --outputFile=test-results/junit.xml
 
       - name: Frontend — Upload test results
         if: always()
