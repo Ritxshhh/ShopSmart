@@ -1,16 +1,20 @@
 const request = require('supertest');
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 
-const TEST_DB_URL = 'file://' + path.resolve(__dirname, 'test.db');
+const TEST_DB_PATH = path.resolve(__dirname, 'test.db');
+const TEST_DB_URL = `file:${TEST_DB_PATH}`;
 
 let app;
 let prisma;
 
 beforeAll(async () => {
-  const { PrismaClient } = require('@prisma/client');
-  const { PrismaLibSql } = require('@prisma/adapter-libsql');
+  if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
+
   const { createClient } = require('@libsql/client');
+  const { PrismaLibSql } = require('@prisma/adapter-libsql');
+  const { PrismaClient } = require('@prisma/client');
 
   const libsql = createClient({ url: TEST_DB_URL });
   await libsql.execute(`
