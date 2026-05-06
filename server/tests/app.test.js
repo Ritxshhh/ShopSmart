@@ -1,3 +1,4 @@
+const { vi } = require('vitest');
 const request = require('supertest');
 const express = require('express');
 
