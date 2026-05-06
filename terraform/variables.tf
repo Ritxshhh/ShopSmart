@@ -13,11 +13,13 @@ variable "image_tag" {
 variable "subnet_ids" {
   description = "List of subnet IDs for ECS Fargate tasks"
   type        = list(string)
+  default     = ["subnet-0ffe187fbf6edaaae"]
 }
 
 variable "security_group_id" {
   description = "Security group ID attached to ECS Fargate tasks"
   type        = string
+  default     = "sg-025eeda8f797386f7"
 }
 
 variable "execution_role_arn" {
