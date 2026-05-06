@@ -1,8 +1,23 @@
-# ============================================================
-# ECR — REMOVED
-# AWS Academy lab policy (voc-cancel-cred) explicitly denies
-# ecr:CreateRepository and ecr:DescribeRepositories.
-# Docker Hub is used as the container registry instead.
-# Image URLs are passed in via TF_VAR_backend_image /
-# TF_VAR_frontend_image at plan time.
-# ============================================================
+# ---------------------------------------------------------------------------
+# Amazon ECR — container image repositories
+# ---------------------------------------------------------------------------
+
+resource "aws_ecr_repository" "backend" {
+  name                 = "shopsmart-backend"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+resource "aws_ecr_repository" "frontend" {
+  name                 = "shopsmart-frontend"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}

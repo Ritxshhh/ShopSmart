@@ -1,12 +1,5 @@
-# ============================================================
-# Terraform Provider & Backend Configuration
-# AWS Academy compatible — uses pre-existing LabRole
-# S3 backend removed: s3:CreateBucket is blocked by lab policy.
-# State is kept locally; re-initialise with: terraform init
-# ============================================================
-
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.0"
 
   required_providers {
     aws = {
@@ -15,13 +8,12 @@ terraform {
     }
   }
 
-  # Local backend — no S3 bucket needed
-  backend "local" {}
+  # S3 backend — configured dynamically via CLI flags in deploy.yml.
+  # When the TF_STATE_BUCKET secret is not set the workflow falls back
+  # to local state by passing `-backend=false`.
+  backend "s3" {}
 }
 
 provider "aws" {
   region = var.aws_region
 }
-
-# Auto-fetch current AWS Account ID — avoids hardcoding
-data "aws_caller_identity" "current" {}

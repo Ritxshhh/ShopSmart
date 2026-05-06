@@ -1,162 +1,163 @@
-# ============================================================
-# Amazon ECS — Fargate Cluster, Task Definitions & Services
-# Cluster is pre-existing (referenced via data source).
-# Images come from Docker Hub via TF_VAR_backend_image /
-# TF_VAR_frontend_image — ECR is blocked by lab policy.
-# ============================================================
+# ---------------------------------------------------------------------------
+# Amazon ECS — Fargate cluster, task definitions, and services
+# ---------------------------------------------------------------------------
 
-# ── ECS Cluster (pre-existing, do NOT create) ────────────────
-data "aws_ecs_cluster" "main" {
-  cluster_name = var.ecs_cluster_name
+data "aws_caller_identity" "current" {}
+
+locals {
+  account_id = data.aws_caller_identity.current.account_id
+
+  # Use the explicitly provided role, or fall back to LabRole (AWS Academy)
+  execution_role_arn = (
+    var.execution_role_arn != ""
+    ? var.execution_role_arn
+    : "arn:aws:iam::${local.account_id}:role/LabRole"
+  )
+
+  backend_image  = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${aws_ecr_repository.backend.name}:${var.image_tag}"
+  frontend_image = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${aws_ecr_repository.frontend.name}:${var.image_tag}"
 }
 
-# ── Backend Task Definition ──────────────────────────────────
+# ── Cluster ───────────────────────────────────────────────────────────────
+
+resource "aws_ecs_cluster" "main" {
+  name = "shopsmart-cluster"
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+}
+
+# ── CloudWatch Log Groups ────────────────────────────────────────────────
+
+resource "aws_cloudwatch_log_group" "backend" {
+  name              = "/ecs/shopsmart-backend"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "frontend" {
+  name              = "/ecs/shopsmart-frontend"
+  retention_in_days = 7
+}
+
+# ── Task Definitions ─────────────────────────────────────────────────────
+
 resource "aws_ecs_task_definition" "backend" {
   family                   = "shopsmart-backend"
-  network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = var.backend_cpu
-  memory                   = var.backend_memory
-
-  # AWS Academy LabRole — already exists, do NOT create via IAM
-  execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/LabRole"
-  task_role_arn      = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/LabRole"
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = local.execution_role_arn
 
   container_definitions = jsonencode([
     {
-      name      = "backend"
-      image     = var.backend_image   # Docker Hub image, e.g. user/shopsmart-backend:abc12345
+      name      = "shopsmart-backend"
+      image     = local.backend_image
       essential = true
 
       portMappings = [
         {
-          containerPort = var.backend_port
+          containerPort = 5001
+          hostPort      = 5001
           protocol      = "tcp"
         }
       ]
 
       environment = [
-        for key, value in var.backend_env_vars : {
-          name  = key
-          value = value
-        }
+        { name = "NODE_ENV", value = "production" },
+        { name = "PORT", value = "5001" }
       ]
 
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = "/ecs/shopsmart-backend"
+          "awslogs-group"         = aws_cloudwatch_log_group.backend.name
           "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "ecs"
-          "awslogs-create-group"  = "true"
         }
       }
     }
   ])
-
-  tags = {
-    Name    = "shopsmart-backend-task"
-    Service = "backend"
-  }
 }
 
-# ── Frontend Task Definition ─────────────────────────────────
 resource "aws_ecs_task_definition" "frontend" {
   family                   = "shopsmart-frontend"
-  network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = var.frontend_cpu
-  memory                   = var.frontend_memory
-
-  execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/LabRole"
-  task_role_arn      = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/LabRole"
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = local.execution_role_arn
 
   container_definitions = jsonencode([
     {
-      name      = "frontend"
-      image     = var.frontend_image   # Docker Hub image, e.g. user/shopsmart-frontend:abc12345
+      name      = "shopsmart-frontend"
+      image     = local.frontend_image
       essential = true
 
       portMappings = [
         {
-          containerPort = var.frontend_port
+          containerPort = 8080
+          hostPort      = 8080
           protocol      = "tcp"
-        }
-      ]
-
-      environment = [
-        for key, value in var.frontend_env_vars : {
-          name  = key
-          value = value
         }
       ]
 
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = "/ecs/shopsmart-frontend"
+          "awslogs-group"         = aws_cloudwatch_log_group.frontend.name
           "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "ecs"
-          "awslogs-create-group"  = "true"
         }
       }
     }
   ])
-
-  tags = {
-    Name    = "shopsmart-frontend-task"
-    Service = "frontend"
-  }
 }
 
-# ── Backend ECS Service ──────────────────────────────────────
+# ── Services ─────────────────────────────────────────────────────────────
+
 resource "aws_ecs_service" "backend" {
   name            = "shopsmart-backend-service"
-  cluster         = data.aws_ecs_cluster.main.arn
+  cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.backend.arn
-  desired_count   = var.service_desired_count
+  desired_count   = 1
   launch_type     = "FARGATE"
 
-  force_new_deployment = true
-
-  deployment_minimum_healthy_percent = 50
-  deployment_maximum_percent         = 200
-
   network_configuration {
-    subnets          = data.aws_subnets.default.ids
-    security_groups  = [data.aws_security_group.default.id]
+    subnets          = var.subnet_ids
+    security_groups  = [var.security_group_id]
     assign_public_ip = true
   }
 
-  tags = {
-    Name        = "shopsmart-backend-service"
-    Environment = "lab"
-    Service     = "backend"
+  deployment_minimum_healthy_percent = 0
+  deployment_maximum_percent         = 200
+
+  # Allow Terraform to update the service when a new task definition is
+  # registered without forcing a full replacement.
+  lifecycle {
+    ignore_changes = [task_definition]
   }
 }
 
-# ── Frontend ECS Service ─────────────────────────────────────
 resource "aws_ecs_service" "frontend" {
   name            = "shopsmart-frontend-service"
-  cluster         = data.aws_ecs_cluster.main.arn
+  cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.frontend.arn
-  desired_count   = var.service_desired_count
+  desired_count   = 1
   launch_type     = "FARGATE"
 
-  force_new_deployment = true
-
-  deployment_minimum_healthy_percent = 50
-  deployment_maximum_percent         = 200
-
   network_configuration {
-    subnets          = data.aws_subnets.default.ids
-    security_groups  = [data.aws_security_group.default.id]
+    subnets          = var.subnet_ids
+    security_groups  = [var.security_group_id]
     assign_public_ip = true
   }
 
-  tags = {
-    Name        = "shopsmart-frontend-service"
-    Environment = "lab"
-    Service     = "frontend"
+  deployment_minimum_healthy_percent = 0
+  deployment_maximum_percent         = 200
+
+  lifecycle {
+    ignore_changes = [task_definition]
   }
 }
