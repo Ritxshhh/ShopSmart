@@ -191,7 +191,6 @@ jobs:
       - name: Terraform Init
         working-directory: terraform
         run: |
-          # Trim any whitespace/newlines from secrets
           BUCKET=$(echo "${{ secrets.TF_STATE_BUCKET }}" | tr -d '[:space:]')
           REGION=$(echo "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')
           if [ "$USE_S3" = "true" ]; then
@@ -202,7 +201,8 @@ jobs:
               -backend-config="encrypt=true"
             echo "✅ Terraform initialized with S3 remote state"
           else
-            terraform init -upgrade -input=false -reconfigure -backend=false
+            echo 'terraform { backend "local" {} }' > backend_override.tf
+            terraform init -upgrade -input=false -reconfigure
             echo "✅ Terraform initialized with local state (fallback)"
           fi
 
@@ -224,9 +224,11 @@ jobs:
             terraform import -input=false aws_ecr_repository.frontend "shopsmart-frontend" || echo "Import failed or already in state"
           fi
 
-          if aws ecs describe-clusters --clusters "shopsmart-cluster" --region "${{ secrets.AWS_REGION }}" | grep -q "shopsmart-cluster"; then
+          if aws ecs describe-clusters --clusters "shopsmart-cluster" --region "${{ secrets.AWS_REGION }}" 2>/dev/null | grep -q "shopsmart-cluster"; then
             echo "ECS cluster exists, importing..."
             terraform import -input=false aws_ecs_cluster.main "shopsmart-cluster" || echo "Import failed or already in state"
+          else
+            echo "ECS cluster not found or access denied, skipping import"
           fi
 
           # Import ECS services if they exist
@@ -251,11 +253,7 @@ jobs:
           TF_VAR_image_tag: ${{ github.sha }}
           TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
         run: |
-          if [ "$USE_S3" = "true" ]; then
-            terraform plan -input=false -out=tfplan
-          else
-            terraform plan -input=false -out=tfplan -state=/dev/null
-          fi
+          terraform plan -input=false -out=tfplan
           echo "✅ Terraform plan complete"
 
       - name: Terraform Apply
