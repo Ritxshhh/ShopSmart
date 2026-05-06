@@ -195,14 +195,14 @@ jobs:
           BUCKET=$(echo "${{ secrets.TF_STATE_BUCKET }}" | tr -d '[:space:]')
           REGION=$(echo "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')
           if [ "$USE_S3" = "true" ]; then
-            terraform init -upgrade -input=false \
+            terraform init -upgrade -input=false -reconfigure \
               -backend-config="bucket=${BUCKET}" \
               -backend-config="key=shopsmart/terraform.tfstate" \
               -backend-config="region=${REGION}" \
               -backend-config="encrypt=true"
             echo "✅ Terraform initialized with S3 remote state"
           else
-            terraform init -upgrade -input=false -backend=false
+            terraform init -upgrade -input=false -reconfigure -backend=false
             echo "✅ Terraform initialized with local state (fallback)"
           fi
 
@@ -251,7 +251,11 @@ jobs:
           TF_VAR_image_tag: ${{ github.sha }}
           TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
         run: |
-          terraform plan -input=false -out=tfplan
+          if [ "$USE_S3" = "true" ]; then
+            terraform plan -input=false -out=tfplan
+          else
+            terraform plan -input=false -out=tfplan -state=/dev/null
+          fi
           echo "✅ Terraform plan complete"
 
       - name: Terraform Apply
