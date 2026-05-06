@@ -134,11 +134,6 @@ resource "aws_ecs_service" "backend" {
   deployment_minimum_healthy_percent = 0
   deployment_maximum_percent         = 200
 
-  # Allow Terraform to update the service when a new task definition is
-  # registered without forcing a full replacement.
-  lifecycle {
-    ignore_changes = [task_definition]
-  }
 }
 
 resource "aws_ecs_service" "frontend" {
@@ -157,7 +152,4 @@ resource "aws_ecs_service" "frontend" {
   deployment_minimum_healthy_percent = 0
   deployment_maximum_percent         = 200
 
-  lifecycle {
-    ignore_changes = [task_definition]
-  }
 }
