@@ -6,3 +6,9 @@ build
 coverage
 .vercel
 *.db
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+crash.log
