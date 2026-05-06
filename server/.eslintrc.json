@@ -10,6 +10,9 @@
     "ecmaVersion": "latest"
   },
   "plugins": ["prettier"],
+  "globals": {
+    "vi": "readonly"
+  },
   "rules": {
     "prettier/prettier": "warn",
     "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
