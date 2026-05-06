@@ -8,10 +8,9 @@ terraform {
     }
   }
 
-  # S3 backend — configured dynamically via CLI flags in deploy.yml.
-  # When the TF_STATE_BUCKET secret is not set the workflow falls back
-  # to local state by passing `-backend=false`.
-  backend "s3" {}
+  # Backend configured dynamically:
+  # - S3 backend via -backend-config flags when TF_STATE_BUCKET is set
+  # - Local backend (default) when TF_STATE_BUCKET is not set
 }
 
 provider "aws" {

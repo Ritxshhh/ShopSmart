@@ -201,7 +201,6 @@ jobs:
               -backend-config="encrypt=true"
             echo "✅ Terraform initialized with S3 remote state"
           else
-            echo 'terraform { backend "local" {} }' > backend_override.tf
             terraform init -upgrade -input=false -reconfigure
             echo "✅ Terraform initialized with local state (fallback)"
           fi
